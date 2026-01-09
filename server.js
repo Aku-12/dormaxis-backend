@@ -17,6 +17,12 @@ mongoose.connect(MONGO_URI)
   .then(() => console.log('✅ Connected to MongoDB'))
   .catch((err) => console.error('❌ MongoDB connection error:', err));
 
+// Import Routes
+const homeRoutes = require('./routes/homeRoutes');
+const dormRoutes = require('./routes/dormRoutes');
+const authRoutes = require('./routes/authRoutes');
+const adminRoutes = require('./routes/adminRoutes');
+
 // Routes
 app.get('/', (req, res) => {
   res.json({ message: 'Welcome to Dormaxis API' });
@@ -26,6 +32,12 @@ app.get('/', (req, res) => {
 app.get('/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
+
+// API Routes
+app.use('/api/home', homeRoutes);
+app.use('/api/dorms', dormRoutes);
+app.use('/api/auth', authRoutes);
+app.use('/api/admin', adminRoutes);
 
 // 404 handler
 app.use((req, res) => {
