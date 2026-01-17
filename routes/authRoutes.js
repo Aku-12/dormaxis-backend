@@ -9,16 +9,20 @@ const {
   validatePassword,
   forgotPassword,
   verifyResetCode,
-  resetPassword
+  resetPassword,
+  updateProfile,
+  uploadAvatarHandler,
+  deleteAvatar
 } = require('../controllers/authController');
-const { 
-  registerValidation, 
-  loginValidation, 
+const {
+  registerValidation,
+  loginValidation,
   changePasswordValidation,
-  getPasswordRequirementsInfo 
+  getPasswordRequirementsInfo
 } = require('../validators/authValidators');
 const { protect } = require('../middleware/authMiddleware');
 const { passwordResetLimiter } = require('../middleware/rateLimiter');
+const { uploadAvatar } = require('../middleware/uploadMiddleware');
 
 // Public routes
 // POST /api/auth/register - Register new user
@@ -52,6 +56,26 @@ router.post('/change-password', protect, changePasswordValidation, changePasswor
 
 // POST /api/auth/logout - Logout user
 router.post('/logout', logout);
+
+// PUT /api/auth/profile - Update user profile
+router.put('/profile', protect, updateProfile);
+
+// POST /api/auth/avatar - Upload avatar
+router.post('/avatar', protect, (req, res, next) => {
+  uploadAvatar.single('avatar')(req, res, (err) => {
+    if (err) {
+      console.error('Multer error:', err);
+      return res.status(400).json({
+        success: false,
+        error: err.message || 'File upload failed'
+      });
+    }
+    next();
+  });
+}, uploadAvatarHandler);
+
+// DELETE /api/auth/avatar - Delete avatar
+router.delete('/avatar', protect, deleteAvatar);
 
 module.exports = router;
 
