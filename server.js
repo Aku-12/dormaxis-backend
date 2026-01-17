@@ -2,6 +2,7 @@ const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
+const path = require('path');
 require('dotenv').config();
 
 // Security middleware
@@ -32,6 +33,9 @@ app.use(cookieParser());
 // 4. Body parsers with size limits
 app.use(express.json({ limit: '10kb' })); // Limit body size to prevent DoS
 app.use(express.urlencoded({ extended: true, limit: '10kb' }));
+
+// 4.5. Serve static files (uploads)
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // 5. Content type validation
 app.use(validateContentType);
