@@ -2,13 +2,14 @@ const User = require('../models/User');
 const bcrypt = require('bcrypt');
 const crypto = require('crypto');
 const { generateToken, createSession, clearSession, SESSION_CONFIG } = require('../middleware/authMiddleware');
-const { 
-  validatePasswordComplexity, 
+const {
+  validatePasswordComplexity,
   calculatePasswordExpiry,
-  isPasswordExpired 
+  isPasswordExpired
 } = require('../validators/passwordValidator');
 const securityConfig = require('../config/security.config');
 const { sendPasswordResetCode, sendPasswordChangeConfirmation } = require('../utils/emailService');
+const { deleteOldAvatar } = require('../middleware/uploadMiddleware');
 
 /**
  * Register new user
@@ -595,6 +596,163 @@ const validatePassword = (req, res) => {
   });
 };
 
+/**
+ * Update user profile
+ * PUT /api/auth/profile
+ */
+const updateProfile = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const { name, phone, firstName, lastName } = req.body;
+
+    // Build update object
+    const updateData = {};
+
+    // Handle name update (combine firstName and lastName if provided)
+    if (firstName !== undefined || lastName !== undefined) {
+      const fName = firstName || req.user.name?.split(' ')[0] || '';
+      const lName = lastName || req.user.name?.split(' ').slice(1).join(' ') || '';
+      updateData.name = `${fName} ${lName}`.trim();
+    } else if (name !== undefined) {
+      updateData.name = name;
+    }
+
+    if (phone !== undefined) {
+      updateData.phone = phone;
+    }
+
+    // Update user (sensitive fields excluded by schema select:false)
+    const updatedUser = await User.findByIdAndUpdate(
+      userId,
+      { $set: updateData },
+      { new: true, runValidators: true }
+    );
+
+    if (!updatedUser) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Profile updated successfully',
+      data: updatedUser
+    });
+  } catch (error) {
+    console.error('Update profile error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update profile'
+    });
+  }
+};
+
+/**
+ * Upload user avatar
+ * POST /api/auth/avatar
+ */
+const uploadAvatarHandler = async (req, res) => {
+  try {
+    const userId = req.user._id;
+
+    console.log('Upload avatar - userId:', userId);
+    console.log('Upload avatar - file:', req.file);
+
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        error: 'No image file provided'
+      });
+    }
+
+    // Get the old avatar path to delete later
+    const user = await User.findById(userId);
+    const oldAvatar = user?.avatar;
+
+    // Build the avatar URL
+    const avatarUrl = `/uploads/avatars/${req.file.filename}`;
+
+    console.log('Upload avatar - avatarUrl:', avatarUrl);
+
+    // Update user with new avatar (sensitive fields excluded by schema select:false)
+    const updatedUser = await User.findByIdAndUpdate(
+      userId,
+      { $set: { avatar: avatarUrl } },
+      { new: true }
+    );
+
+    if (!updatedUser) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+
+    // Delete old avatar file if exists
+    if (oldAvatar) {
+      deleteOldAvatar(oldAvatar);
+    }
+
+    console.log('Upload avatar - success, returning user:', updatedUser._id);
+
+    res.json({
+      success: true,
+      message: 'Avatar uploaded successfully',
+      data: {
+        avatar: avatarUrl,
+        user: updatedUser
+      }
+    });
+  } catch (error) {
+    console.error('Upload avatar error:', error.message);
+    console.error('Upload avatar stack:', error.stack);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to upload avatar'
+    });
+  }
+};
+
+/**
+ * Delete user avatar
+ * DELETE /api/auth/avatar
+ */
+const deleteAvatar = async (req, res) => {
+  try {
+    const userId = req.user._id;
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+
+    // Delete avatar file if exists
+    if (user.avatar) {
+      deleteOldAvatar(user.avatar);
+    }
+
+    // Clear avatar field
+    user.avatar = '';
+    await user.save();
+
+    res.json({
+      success: true,
+      message: 'Avatar deleted successfully'
+    });
+  } catch (error) {
+    console.error('Delete avatar error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to delete avatar'
+    });
+  }
+};
+
 module.exports = {
   register,
   login,
@@ -604,5 +762,8 @@ module.exports = {
   validatePassword,
   forgotPassword,
   verifyResetCode,
-  resetPassword
+  resetPassword,
+  updateProfile,
+  uploadAvatarHandler,
+  deleteAvatar
 };
