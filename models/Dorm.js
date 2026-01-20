@@ -24,7 +24,7 @@ const dormSchema = new mongoose.Schema({
   },
   type: {
     type: String,
-    enum: ['single', 'double', 'shared', 'premium'],
+    enum: ['single', 'two-seater', 'three-seater', 'four-seater', 'shared', 'premium'],
     default: 'single'
   },
   image: {
