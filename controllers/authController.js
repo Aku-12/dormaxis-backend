@@ -10,6 +10,106 @@ const {
 const securityConfig = require('../config/security.config');
 const { sendPasswordResetCode, sendPasswordChangeConfirmation } = require('../utils/emailService');
 const { deleteOldAvatar } = require('../middleware/uploadMiddleware');
+const { uploadToCloudinary, deleteFromCloudinary, getPublicIdFromUrl } = require('../config/cloudinary');
+const { OAuth2Client } = require('google-auth-library');
+const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+
+/**
+ * Google Login
+ * POST /api/auth/google
+ */
+const googleLogin = async (req, res) => {
+  try {
+    const { token } = req.body;
+    
+    // Verify Google Token
+    const ticket = await client.verifyIdToken({
+      idToken: token,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
+    
+    const { name, email, picture, sub: googleId } = ticket.getPayload();
+    
+    let user = await User.findOne({ email });
+    
+    if (user) {
+      // If user exists but doesn't have googleId linked, link it
+      if (!user.googleId) {
+        user.googleId = googleId;
+        // Also update avatar if not set
+        if (!user.avatar && picture) {
+          user.avatar = picture;
+        }
+        await user.save();
+      }
+    } else {
+      // Create new user
+      // Note: We need a random password if we want to support password login later or just bypass pw
+      // But schema now makes password optional if googleId is set.
+      user = await User.create({
+        name,
+        email,
+        googleId,
+        avatar: picture,
+        isEmailVerified: true, // Google emails are verified
+        password: crypto.randomBytes(16).toString('hex') // Assign random secure password or leave empty if schema allows
+      });
+    }
+
+    // Check if account is locked
+    if (user.loginAttempts?.lockedUntil && user.loginAttempts.lockedUntil > new Date()) {
+        // ... (lockout logic copy from login)
+         const remainingTime = Math.ceil((user.loginAttempts.lockedUntil - new Date()) / 60000);
+         return res.status(423).json({
+            success: false,
+            error: `Account is locked. Try again in ${remainingTime} minutes`
+         });
+    }
+    
+    if (!user.isActive) {
+        return res.status(401).json({
+            success: false,
+            error: 'Account is deactivated. Please contact support.'
+        });
+    }
+    
+    // Create session (same as regular login)
+    // Update last login
+    await User.findByIdAndUpdate(user._id, {
+        lastLogin: new Date(),
+        lastLoginIP: req.ip || req.connection.remoteAddress,
+        lastLoginUserAgent: req.get('User-Agent')
+    });
+    
+    const { token: sessionToken } = await createSession(res, user, req);
+    
+    const userResponse = {
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        phone: user.phone,
+        avatar: user.avatar,
+        mfaEnabled: user.mfaEnabled
+    };
+
+    res.json({
+        success: true,
+        message: 'Google login successful',
+        data: {
+            user: userResponse,
+            token: sessionToken
+        }
+    });
+
+  } catch (error) {
+    console.error('Google login error:', error);
+    res.status(401).json({
+      success: false,
+      error: 'Google login failed'
+    });
+  }
+};
 
 /**
  * Register new user
@@ -605,6 +705,9 @@ const updateProfile = async (req, res) => {
     const userId = req.user._id;
     const { name, phone, firstName, lastName } = req.body;
 
+    // Store user state before update for audit
+    const userBefore = { name: req.user.name, phone: req.user.phone };
+
     // Build update object
     const updateData = {};
 
@@ -635,6 +738,18 @@ const updateProfile = async (req, res) => {
       });
     }
 
+    // Create audit log for profile update
+    const { createAuditLog } = require('../utils/auditLogger');
+    await createAuditLog({
+      action: 'UPDATE',
+      targetType: 'User',
+      targetId: updatedUser._id,
+      targetName: updatedUser.name,
+      before: userBefore,
+      after: { name: updatedUser.name, phone: updatedUser.phone },
+      req
+    });
+
     res.json({
       success: true,
       message: 'Profile updated successfully',
@@ -657,9 +772,6 @@ const uploadAvatarHandler = async (req, res) => {
   try {
     const userId = req.user._id;
 
-    console.log('Upload avatar - userId:', userId);
-    console.log('Upload avatar - file:', req.file);
-
     if (!req.file) {
       return res.status(400).json({
         success: false,
@@ -671,10 +783,9 @@ const uploadAvatarHandler = async (req, res) => {
     const user = await User.findById(userId);
     const oldAvatar = user?.avatar;
 
-    // Build the avatar URL
-    const avatarUrl = `/uploads/avatars/${req.file.filename}`;
-
-    console.log('Upload avatar - avatarUrl:', avatarUrl);
+    // Upload to Cloudinary
+    const result = await uploadToCloudinary(req.file.buffer, 'avatars');
+    const avatarUrl = result.secure_url;
 
     // Update user with new avatar (sensitive fields excluded by schema select:false)
     const updatedUser = await User.findByIdAndUpdate(
@@ -690,12 +801,10 @@ const uploadAvatarHandler = async (req, res) => {
       });
     }
 
-    // Delete old avatar file if exists
+    // Delete old avatar file if exists (handles both local and Cloudinary)
     if (oldAvatar) {
-      deleteOldAvatar(oldAvatar);
+      await deleteOldAvatar(oldAvatar);
     }
-
-    console.log('Upload avatar - success, returning user:', updatedUser._id);
 
     res.json({
       success: true,
@@ -707,10 +816,145 @@ const uploadAvatarHandler = async (req, res) => {
     });
   } catch (error) {
     console.error('Upload avatar error:', error.message);
-    console.error('Upload avatar stack:', error.stack);
     res.status(500).json({
       success: false,
       error: 'Failed to upload avatar'
+    });
+  }
+};
+
+// Helper functions for User Agent parsing
+const getDeviceType = (ua) => {
+  if (/mobile/i.test(ua)) return 'Mobile';
+  if (/tablet/i.test(ua)) return 'Tablet';
+  return 'Desktop';
+};
+
+const getBrowserInfo = (ua) => {
+  if (ua.includes('Firefox')) return 'Firefox';
+  if (ua.includes('SamsungBrowser')) return 'Samsung Internet';
+  if (ua.includes('Opera') || ua.includes('OPR')) return 'Opera';
+  if (ua.includes('Trident')) return 'Internet Explorer';
+  if (ua.includes('Edge')) return 'Edge';
+  if (ua.includes('Chrome')) return 'Chrome';
+  if (ua.includes('Safari')) return 'Safari';
+  return 'Unknown Browser';
+};
+
+const getOSInfo = (ua) => {
+  if (ua.includes('Win')) return 'Windows';
+  if (ua.includes('Mac')) return 'macOS';
+  if (ua.includes('Linux')) return 'Linux';
+  if (ua.includes('Android')) return 'Android';
+  if (ua.includes('iOS')) return 'iOS';
+  return 'Unknown OS';
+};
+
+/**
+ * Get active sessions
+ * GET /api/auth/sessions
+ */
+const getSessions = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const currentToken = req.cookies?.[SESSION_CONFIG.cookieName] || 
+                        req.headers.authorization?.split(' ')[1];
+
+    // Find all active sessions for this user
+    const Session = require('../models/Session');
+    const sessions = await Session.find({ 
+      userId,
+      expiresAt: { $gt: new Date() } // Only not expired
+    }).sort({ lastActivity: -1 });
+
+    // Enhance session data
+    const sessionsData = sessions.map(session => ({
+      _id: session._id,
+      userAgent: session.userAgent,
+      ipAddress: session.ipAddress,
+      lastActivity: session.lastActivity,
+      createdAt: session.createdAt,
+      isCurrent: session.token === currentToken,
+      deviceType: getDeviceType(session.userAgent), // Helper to parse UA
+      browser: getBrowserInfo(session.userAgent),   // Helper to parse UA
+      os: getOSInfo(session.userAgent)              // Helper to parse UA
+    }));
+
+    res.json({
+      success: true,
+      data: sessionsData
+    });
+  } catch (error) {
+    console.error('Get sessions error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get sessions'
+    });
+  }
+};
+
+/**
+ * Revoke specific session
+ * DELETE /api/auth/sessions/:sessionId
+ */
+const revokeSession = async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const userId = req.user._id;
+
+    const Session = require('../models/Session');
+    const session = await Session.findOne({ _id: sessionId, userId });
+
+    if (!session) {
+      return res.status(404).json({
+        success: false,
+        error: 'Session not found'
+      });
+    }
+
+    await session.deleteOne();
+
+    res.json({
+      success: true,
+      message: 'Session revoked successfully'
+    });
+  } catch (error) {
+    console.error('Revoke session error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to revoke session'
+    });
+  }
+};
+
+/**
+ * Revoke all other sessions
+ * DELETE /api/auth/sessions
+ */
+const revokeAllSessions = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const currentToken = req.cookies?.[SESSION_CONFIG.cookieName] || 
+                        req.headers.authorization?.split(' ')[1];
+
+    const Session = require('../models/Session');
+    
+    // Delete all sessions for user EXCEPT current one
+    const result = await Session.deleteMany({ 
+      userId,
+      token: { $ne: currentToken }
+    });
+
+    res.json({
+      success: true,
+      message: 'All other sessions revoked successfully',
+      revokedCount: result.deletedCount
+    });
+  } catch (error) {
+    console.error('Revoke all sessions error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to revoke sessions'
     });
   }
 };
@@ -731,9 +975,9 @@ const deleteAvatar = async (req, res) => {
       });
     }
 
-    // Delete avatar file if exists
+    // Delete avatar file if exists (handles both local and Cloudinary)
     if (user.avatar) {
-      deleteOldAvatar(user.avatar);
+      await deleteOldAvatar(user.avatar);
     }
 
     // Clear avatar field
@@ -753,6 +997,77 @@ const deleteAvatar = async (req, res) => {
   }
 };
 
+/**
+ * Delete user account
+ * DELETE /api/auth/account
+ */
+const deleteAccount = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const { password } = req.body;
+
+    // Find user
+    const user = await User.findById(userId).select('+password');
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+
+    // For users with password (non-Google users), verify password
+    if (user.password && !user.googleId) {
+      if (!password) {
+        return res.status(400).json({
+          success: false,
+          error: 'Password is required to delete account'
+        });
+      }
+
+      const isMatch = await bcrypt.compare(password, user.password);
+      if (!isMatch) {
+        return res.status(401).json({
+          success: false,
+          error: 'Incorrect password'
+        });
+      }
+    }
+
+    // Delete avatar file if exists (handles both local and Cloudinary)
+    if (user.avatar) {
+      await deleteOldAvatar(user.avatar);
+    }
+
+    // Delete user's sessions
+    const Session = require('../models/Session');
+    await Session.deleteMany({ user: userId });
+
+    // Delete user's notifications
+    const Notification = require('../models/Notification');
+    await Notification.deleteMany({ user: userId });
+
+    // Optionally: Cancel active bookings or handle them differently
+    // For now, we'll leave bookings for record-keeping but could add cancellation logic
+
+    // Delete user
+    await User.findByIdAndDelete(userId);
+
+    // Clear session cookie
+    clearSession(res);
+
+    res.json({
+      success: true,
+      message: 'Account deleted successfully'
+    });
+  } catch (error) {
+    console.error('Delete account error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to delete account'
+    });
+  }
+};
+
 module.exports = {
   register,
   login,
@@ -765,5 +1080,10 @@ module.exports = {
   resetPassword,
   updateProfile,
   uploadAvatarHandler,
-  deleteAvatar
+  deleteAvatar,
+  getSessions,
+  revokeSession,
+  revokeAllSessions,
+  googleLogin,
+  deleteAccount
 };
