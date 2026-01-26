@@ -43,8 +43,8 @@ const bookingSchema = new mongoose.Schema({
   // Payment Information
   paymentMethod: {
     type: String,
-    enum: ['esewa', 'khalti', 'bank_transfer', 'cash'],
-    default: 'esewa'
+    enum: ['stripe', 'bank_transfer', 'cash'],
+    default: 'stripe'
   },
   // Pricing
   monthlyRent: {
@@ -85,12 +85,8 @@ const bookingSchema = new mongoose.Schema({
     enum: ['pending', 'paid', 'failed', 'refunded'],
     default: 'pending'
   },
-  paymentReference: {
-    type: String,
-    default: null
-  },
-  // eSewa Transaction Details
-  transactionUuid: {
+  // Stripe Session Details
+  stripeSessionId: {
     type: String,
     default: null,
     index: true
@@ -101,20 +97,6 @@ const bookingSchema = new mongoose.Schema({
   },
   paidAt: {
     type: Date,
-    default: null
-  },
-  paymentError: {
-    type: String,
-    default: null
-  },
-  // Khalti Transaction Details
-  khaltiPidx: {
-    type: String,
-    default: null,
-    index: true
-  },
-  khaltiPurchaseOrderId: {
-    type: String,
     default: null
   },
   // Check-in Information
