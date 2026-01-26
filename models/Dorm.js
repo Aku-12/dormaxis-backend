@@ -36,7 +36,24 @@ const dormSchema = new mongoose.Schema({
   }],
   amenities: [{
     type: String,
-    enum: ['WiFi', 'Air Conditioning', 'Parking', 'Laundry', 'Furnished', 'Kitchen', 'TV', 'Gym']
+    enum: [
+      'WiFi', 
+      'Air Conditioning', 
+      'Parking', 
+      'Laundry', 
+      'Furnished', 
+      'Kitchen', 
+      'TV', 
+      'Gym',
+      'Study Table',
+      'Attached Bathroom',
+      'Hot Water',
+      'Balcony',
+      'Security',
+      'CCTV',
+      'Wardrobe',
+      'Power Backup'
+    ]
   }],
   // Badge flags
   isPopular: {
