@@ -147,7 +147,133 @@ const sendPasswordChangeConfirmation = async (email, name) => {
   }
 };
 
+/**
+ * Send MFA enabled confirmation email
+ */
+const sendMFAEnabledConfirmation = async (email, name) => {
+  const transporter = createTransporter();
+
+  const mailOptions = {
+    from: `${process.env.FROM_NAME || 'DormAxis'} <${process.env.FROM_EMAIL || process.env.EMAIL_USER}>`,
+    to: email,
+    subject: 'Two-Factor Authentication Enabled - DormAxis',
+    html: `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+      </head>
+      <body style="margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f5f5f5;">
+        <div style="max-width: 600px; margin: 0 auto; padding: 40px 20px;">
+          <div style="background: white; border-radius: 16px; padding: 40px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
+            <div style="text-align: center; margin-bottom: 30px;">
+              <div style="display: inline-block; width: 60px; height: 60px; background: #22C55E; border-radius: 50%; line-height: 60px; font-size: 30px;">
+                🛡️
+              </div>
+            </div>
+
+            <h2 style="color: #333; text-align: center; margin-bottom: 10px;">2FA Enabled!</h2>
+            <p style="color: #666; text-align: center; margin-bottom: 30px;">
+              Hi ${name || 'there'},<br>
+              Two-factor authentication has been successfully enabled on your account.
+            </p>
+
+            <div style="background: #f0f9ff; border-radius: 8px; padding: 20px; margin-bottom: 20px;">
+              <p style="color: #1e40af; font-size: 14px; margin: 0;">
+                <strong>Important:</strong> Make sure to save your backup codes in a secure location.
+                You'll need them if you lose access to your authenticator app.
+              </p>
+            </div>
+
+            <p style="color: #999; font-size: 13px; text-align: center;">
+              If you didn't enable 2FA, please secure your account immediately.
+            </p>
+
+            <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
+            <p style="color: #999; font-size: 12px; text-align: center; margin: 0;">
+              © ${new Date().getFullYear()} DormAxis. All rights reserved.
+            </p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `,
+  };
+
+  try {
+    await transporter.sendMail(mailOptions);
+    console.log('✅ MFA enabled confirmation sent');
+    return { success: true };
+  } catch (error) {
+    console.error('❌ Error sending MFA confirmation:', error.message);
+  }
+};
+
+/**
+ * Send MFA disabled confirmation email
+ */
+const sendMFADisabledConfirmation = async (email, name) => {
+  const transporter = createTransporter();
+
+  const mailOptions = {
+    from: `${process.env.FROM_NAME || 'DormAxis'} <${process.env.FROM_EMAIL || process.env.EMAIL_USER}>`,
+    to: email,
+    subject: 'Two-Factor Authentication Disabled - DormAxis',
+    html: `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+      </head>
+      <body style="margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f5f5f5;">
+        <div style="max-width: 600px; margin: 0 auto; padding: 40px 20px;">
+          <div style="background: white; border-radius: 16px; padding: 40px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
+            <div style="text-align: center; margin-bottom: 30px;">
+              <div style="display: inline-block; width: 60px; height: 60px; background: #FEF3C7; border-radius: 50%; line-height: 60px; font-size: 30px;">
+                ⚠️
+              </div>
+            </div>
+
+            <h2 style="color: #333; text-align: center; margin-bottom: 10px;">2FA Disabled</h2>
+            <p style="color: #666; text-align: center; margin-bottom: 30px;">
+              Hi ${name || 'there'},<br>
+              Two-factor authentication has been disabled on your account.
+            </p>
+
+            <div style="background: #fef3c7; border-radius: 8px; padding: 20px; margin-bottom: 20px;">
+              <p style="color: #92400e; font-size: 14px; margin: 0;">
+                <strong>Security Notice:</strong> Your account is now less secure.
+                We recommend re-enabling 2FA to protect your account.
+              </p>
+            </div>
+
+            <p style="color: #999; font-size: 13px; text-align: center;">
+              If you didn't disable 2FA, please secure your account immediately.
+            </p>
+
+            <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
+            <p style="color: #999; font-size: 12px; text-align: center; margin: 0;">
+              © ${new Date().getFullYear()} DormAxis. All rights reserved.
+            </p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `,
+  };
+
+  try {
+    await transporter.sendMail(mailOptions);
+    console.log('✅ MFA disabled confirmation sent');
+    return { success: true };
+  } catch (error) {
+    console.error('❌ Error sending MFA disabled confirmation:', error.message);
+  }
+};
+
 module.exports = {
   sendPasswordResetCode,
-  sendPasswordChangeConfirmation
+  sendPasswordChangeConfirmation,
+  sendMFAEnabledConfirmation,
+  sendMFADisabledConfirmation
 };

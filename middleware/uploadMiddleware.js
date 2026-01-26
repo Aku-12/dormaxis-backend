@@ -1,26 +1,15 @@
 const multer = require('multer');
 const path = require('path');
-const crypto = require('crypto');
 const fs = require('fs');
 
-// Ensure uploads directory exists
+// Ensure uploads directories exist (for local fallback)
 const uploadDir = path.join(__dirname, '../uploads/avatars');
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
 
-// Configure storage
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, uploadDir);
-  },
-  filename: (req, file, cb) => {
-    // Generate unique filename
-    const uniqueSuffix = crypto.randomBytes(16).toString('hex');
-    const ext = path.extname(file.originalname).toLowerCase();
-    cb(null, `avatar-${uniqueSuffix}${ext}`);
-  }
-});
+// Configure storage - use memory storage for Cloudinary uploads
+const memoryStorage = multer.memoryStorage();
 
 // File filter - only allow images
 const fileFilter = (req, file, cb) => {
@@ -33,9 +22,9 @@ const fileFilter = (req, file, cb) => {
   }
 };
 
-// Create multer upload instance
+// Create multer upload instance - use memory storage for Cloudinary
 const uploadAvatar = multer({
-  storage: storage,
+  storage: memoryStorage,
   fileFilter: fileFilter,
   limits: {
     fileSize: 5 * 1024 * 1024, // 5MB max file size
@@ -74,8 +63,23 @@ const handleUploadError = (err, req, res, next) => {
   next();
 };
 
-// Helper to delete old avatar file
-const deleteOldAvatar = (avatarPath) => {
+// Helper to delete old avatar file (handles both local and Cloudinary)
+const deleteOldAvatar = async (avatarPath) => {
+  // Handle Cloudinary URLs
+  if (avatarPath && avatarPath.includes('cloudinary.com')) {
+    const { deleteFromCloudinary, getPublicIdFromUrl } = require('../config/cloudinary');
+    const publicId = getPublicIdFromUrl(avatarPath);
+    if (publicId) {
+      try {
+        await deleteFromCloudinary(publicId);
+      } catch (err) {
+        console.error('Error deleting avatar from Cloudinary:', err);
+      }
+    }
+    return;
+  }
+
+  // Handle local files
   if (avatarPath && avatarPath.includes('/uploads/avatars/')) {
     const filename = avatarPath.split('/uploads/avatars/')[1];
     const fullPath = path.join(uploadDir, filename);
@@ -88,8 +92,57 @@ const deleteOldAvatar = (avatarPath) => {
   }
 };
 
+// ========== DORM IMAGE UPLOAD ==========
+
+// Ensure dorm images directory exists (for local fallback)
+const dormImageDir = path.join(__dirname, '../uploads/dorms');
+if (!fs.existsSync(dormImageDir)) {
+  fs.mkdirSync(dormImageDir, { recursive: true });
+}
+
+// Configure storage for dorm images - use memory storage for Cloudinary
+const uploadDormImage = multer({
+  storage: memoryStorage,
+  fileFilter: fileFilter,
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB max for dorm images
+    files: 5 // Allow up to 5 images
+  }
+});
+
+// Helper to delete old dorm image (handles both local and Cloudinary)
+const deleteOldDormImage = async (imagePath) => {
+  // Handle Cloudinary URLs
+  if (imagePath && imagePath.includes('cloudinary.com')) {
+    const { deleteFromCloudinary, getPublicIdFromUrl } = require('../config/cloudinary');
+    const publicId = getPublicIdFromUrl(imagePath);
+    if (publicId) {
+      try {
+        await deleteFromCloudinary(publicId);
+      } catch (err) {
+        console.error('Error deleting from Cloudinary:', err);
+      }
+    }
+    return;
+  }
+
+  // Handle local files
+  if (imagePath && imagePath.includes('/uploads/dorms/')) {
+    const filename = imagePath.split('/uploads/dorms/')[1];
+    const fullPath = path.join(dormImageDir, filename);
+
+    if (fs.existsSync(fullPath)) {
+      fs.unlink(fullPath, (err) => {
+        if (err) console.error('Error deleting old dorm image:', err);
+      });
+    }
+  }
+};
+
 module.exports = {
   uploadAvatar,
   handleUploadError,
-  deleteOldAvatar
+  deleteOldAvatar,
+  uploadDormImage,
+  deleteOldDormImage
 };
