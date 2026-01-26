@@ -4,6 +4,7 @@ const bcrypt = require('bcrypt');
 const crypto = require('crypto');
 const User = require('../models/User');
 const { generateToken } = require('../middleware/authMiddleware');
+const { sendMFAEnabledConfirmation, sendMFADisabledConfirmation } = require('../utils/emailService');
 
 /**
  * Generate MFA setup (secret + QR code)
@@ -95,6 +96,9 @@ const verifySetup = async (req, res) => {
     user.mfaEnabled = true;
     user.mfaBackupCodes = hashedCodes;
     await user.save();
+
+    // Send confirmation email (async, don't wait)
+    sendMFAEnabledConfirmation(user.email, user.name).catch(console.error);
 
     res.json({
       success: true,
@@ -308,6 +312,9 @@ const disableMFA = async (req, res) => {
     user.mfaSecret = undefined;
     user.mfaBackupCodes = [];
     await user.save();
+
+    // Send confirmation email (async, don't wait)
+    sendMFADisabledConfirmation(user.email, user.name).catch(console.error);
 
     res.json({
       success: true,
