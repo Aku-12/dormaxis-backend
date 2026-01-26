@@ -72,6 +72,7 @@ const mfaRoutes = require('./routes/mfaRoutes');
 const reviewRoutes = require('./routes/reviewRoutes');
 const bookingRoutes = require('./routes/bookingRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
+const notificationRoutes = require('./routes/notificationRoutes');
 
 // Rate limiting middleware
 const { loginLimiter, apiLimiter, ipBlockingMiddleware } = require('./middleware/rateLimiter');
@@ -108,6 +109,7 @@ app.use('/api/wishlist', wishlistRoutes);
 app.use('/api/reviews', reviewRoutes);
 app.use('/api/bookings', bookingRoutes);
 app.use('/api/payments', paymentRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 // ============================================
 // ERROR HANDLING
