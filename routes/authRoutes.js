@@ -12,7 +12,12 @@ const {
   resetPassword,
   updateProfile,
   uploadAvatarHandler,
-  deleteAvatar
+  deleteAvatar,
+  getSessions,
+  revokeSession,
+  revokeAllSessions,
+  googleLogin,
+  deleteAccount
 } = require('../controllers/authController');
 const {
   registerValidation,
@@ -30,6 +35,9 @@ router.post('/register', registerValidation, register);
 
 // POST /api/auth/login - Login user
 router.post('/login', loginValidation, login);
+
+// POST /api/auth/google - Google Login
+router.post('/google', googleLogin);
 
 // POST /api/auth/validate-password - Validate password strength (for real-time feedback)
 router.post('/validate-password', validatePassword);
@@ -77,5 +85,12 @@ router.post('/avatar', protect, (req, res, next) => {
 // DELETE /api/auth/avatar - Delete avatar
 router.delete('/avatar', protect, deleteAvatar);
 
-module.exports = router;
+// Session Management Routes
+router.get('/sessions', protect, getSessions);
+router.delete('/sessions', protect, revokeAllSessions);
+router.delete('/sessions/:sessionId', protect, revokeSession);
 
+// DELETE /api/auth/account - Delete user account
+router.delete('/account', protect, deleteAccount);
+
+module.exports = router;
