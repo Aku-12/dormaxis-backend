@@ -1,6 +1,8 @@
 const Booking = require('../models/Booking');
 const Dorm = require('../models/Dorm');
 const PromoCode = require('../models/PromoCode');
+const { createNotification } = require('./notificationController');
+const { createAuditLog } = require('../utils/auditLogger');
 
 // Security deposit percentage of monthly rent
 const SECURITY_DEPOSIT_PERCENTAGE = 17.14; // Approximately Rs 1200 for Rs 7000 rent
@@ -83,6 +85,26 @@ const createBooking = async (req, res) => {
     });
 
     await booking.save();
+
+    // Create audit log for booking creation
+    await createAuditLog({
+      action: 'CREATE',
+      targetType: 'Booking',
+      targetId: booking._id,
+      targetName: `Booking for ${dorm.name}`,
+      after: booking.toObject(),
+      req
+    });
+
+    // Create notification for booking
+    await createNotification(
+      req.user.id,
+      'booking',
+      'Booking Created',
+      `Your booking for ${dorm.name} has been created. Please complete the payment to confirm.`,
+      `/booking/payment/${booking._id}`,
+      { bookingId: booking._id, dormId: dormId }
+    );
 
     // Populate dorm details for response
     await booking.populate('dorm', 'name image beds block amenities rating totalReviews');
@@ -195,8 +217,22 @@ const cancelBooking = async (req, res) => {
       });
     }
 
+    // Store state before cancellation
+    const bookingBefore = booking.toObject();
+
     booking.status = 'cancelled';
     await booking.save();
+
+    // Create audit log for booking cancellation
+    await createAuditLog({
+      action: 'UPDATE',
+      targetType: 'Booking',
+      targetId: booking._id,
+      targetName: `Booking #${booking._id.toString().slice(-6).toUpperCase()}`,
+      before: { status: bookingBefore.status },
+      after: { status: 'cancelled' },
+      req
+    });
 
     res.json({
       success: true,
@@ -377,17 +413,31 @@ const updateBookingStatus = async (req, res) => {
       });
     }
 
+    // Store booking state before update for audit logging
+    const bookingBefore = booking.toObject();
+
     booking.status = status;
-    
+
     // Update payment status if confirmed
     if (status === 'confirmed') {
       booking.paymentStatus = 'paid';
     }
-    
+
     await booking.save();
 
     await booking.populate('user', 'name email');
     await booking.populate('dorm', 'name image beds block price');
+
+    // Create audit log
+    await createAuditLog({
+      action: 'UPDATE',
+      targetType: 'Booking',
+      targetId: booking._id,
+      targetName: `Booking #${booking._id.toString().slice(-6).toUpperCase()}`,
+      before: bookingBefore,
+      after: booking.toObject(),
+      req
+    });
 
     res.json({
       success: true,
