@@ -38,8 +38,10 @@ module.exports = {
   rateLimit: {
     windowMs: 15 * 60 * 1000,   // 15 minutes
     maxRequests: 100,           // Max requests per window
-    loginMaxAttempts: 5,        // Max login attempts before lockout
-    lockoutDuration: 30 * 60 * 1000, // 30 minutes lockout
+    loginMaxAttempts: parseInt(process.env.AUTH_MAX_LOGIN_ATTEMPTS) || 5,
+    lockoutDuration: (parseInt(process.env.AUTH_LOCKOUT_DURATION_MINS) || 30) * 60 * 1000,
+    ipBlockThreshold: parseInt(process.env.AUTH_IP_BLOCK_THRESHOLD) || 10,
+    ipBlockDuration: (parseInt(process.env.AUTH_IP_BLOCK_DURATION_MINS) || 15) * 60 * 1000,
   },
 
   // CORS Configuration
