@@ -16,7 +16,7 @@ const SESSION_CONFIG = {
 const getCookieOptions = (maxAge = SESSION_CONFIG.maxSession) => ({
   httpOnly: true,                    // Prevents JavaScript access
   secure: process.env.NODE_ENV === 'production', // HTTPS only in production
-  sameSite: 'strict',                // CSRF protection
+  sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax', // Lax for dev, Strict for prod
   maxAge: maxAge,                    // Cookie lifetime
   path: '/'
 });
