@@ -1,11 +1,10 @@
 const rateLimit = require('express-rate-limit');
+const securityConfig = require('../config/security.config');
 
 /**
- * Rate Limiter Configurations
- * Protects against brute-force attacks and API abuse
+ * Store for tracking blocked IPs
+ * Keys: ip (for blocked IPs), failures_ip (for tracking failure count)
  */
-
-// Store for tracking blocked IPs (in-memory, use Redis in production)
 const blockedIPs = new Map();
 
 /**
@@ -25,7 +24,7 @@ const isIPBlocked = (ip) => {
 /**
  * Block an IP temporarily
  */
-const blockIP = (ip, durationMs = 30 * 60 * 1000) => {
+const blockIP = (ip, durationMs = securityConfig.rateLimit.ipBlockDuration) => {
   blockedIPs.set(ip, {
     until: Date.now() + durationMs,
     blockedAt: new Date()
@@ -34,7 +33,6 @@ const blockIP = (ip, durationMs = 30 * 60 * 1000) => {
 
 /**
  * IP Blocking Middleware
- * Blocks IPs that have been flagged for abuse
  */
 const ipBlockingMiddleware = (req, res, next) => {
   const ip = req.ip || req.connection.remoteAddress;
@@ -56,35 +54,23 @@ const ipBlockingMiddleware = (req, res, next) => {
 
 /**
  * Login Rate Limiter
- * 5 attempts per 15 minutes per IP
+ * Threshold defined in security.config.js (default 10)
  */
 const loginLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5, // 5 attempts
+  windowMs: 15 * 60 * 1000, 
+  max: securityConfig.rateLimit.ipBlockThreshold, 
   message: {
     success: false,
-    error: 'Too many login attempts. Please try again after 15 minutes.',
+    error: 'Too many login attempts from this IP. Please try again after 15 minutes.',
     retryAfter: 15 * 60
   },
-  standardHeaders: true, // Return rate limit info in headers
+  standardHeaders: true,
   legacyHeaders: false,
-  validate: { xForwardedForHeader: false }, // Disable IPv6 validation warning
   handler: (req, res, next, options) => {
-    // Track failed attempts for IP blocking
-    const ip = req.ip;
-    const failedAttempts = req.rateLimit?.current || 0;
+    const ip = req.ip || req.connection.remoteAddress;
     
-    // Block IP after 20 consecutive failures across multiple windows
-    if (failedAttempts >= 5) {
-      // Increment IP failure counter
-      const ipFailures = (blockedIPs.get(`failures_${ip}`)?.count || 0) + 1;
-      blockedIPs.set(`failures_${ip}`, { count: ipFailures, lastAttempt: Date.now() });
-      
-      if (ipFailures >= 4) { // 4 windows × 5 attempts = 20 total failures
-        blockIP(ip, 60 * 60 * 1000); // Block for 1 hour
-        blockedIPs.delete(`failures_${ip}`);
-      }
-    }
+    // Block IP for 15 minutes
+    blockIP(ip, securityConfig.rateLimit.ipBlockDuration);
     
     res.status(options.statusCode).json(options.message);
   }
