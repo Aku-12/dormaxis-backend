@@ -3,7 +3,7 @@ const QRCode = require('qrcode');
 const bcrypt = require('bcrypt');
 const crypto = require('crypto');
 const User = require('../models/User');
-const { generateToken } = require('../middleware/authMiddleware');
+const { generateToken, createSession } = require('../middleware/authMiddleware');
 const { sendMFAEnabledConfirmation, sendMFADisabledConfirmation } = require('../utils/emailService');
 
 /**
@@ -123,9 +123,11 @@ const verifySetup = async (req, res) => {
  */
 const verifyMFA = async (req, res) => {
   try {
+    console.log('=== MFA Verification Started ===');
     const { tempToken, mfaToken } = req.body;
 
     if (!tempToken || !mfaToken) {
+      console.warn('Missing tempToken or mfaToken');
       return res.status(400).json({
         success: false,
         error: 'Temporary token and MFA code are required'
@@ -137,7 +139,9 @@ const verifyMFA = async (req, res) => {
     let decoded;
     try {
       decoded = jwt.verify(tempToken, process.env.JWT_SECRET);
+      console.log('Temp token verified for user ID:', decoded.id);
     } catch (err) {
+      console.error('Temp token verification failed:', err.message);
       return res.status(401).json({
         success: false,
         error: 'Invalid or expired temporary token'
@@ -147,12 +151,14 @@ const verifyMFA = async (req, res) => {
     const user = await User.findById(decoded.id).select('+mfaSecret');
 
     if (!user || !user.mfaEnabled) {
+      console.warn('User not found or MFA not enabled for user:', decoded.id);
       return res.status(400).json({
         success: false,
         error: 'MFA not enabled for this user'
       });
     }
 
+    console.log('Verifying TOTP token for user:', user.email);
     // Verify TOTP
     const verified = speakeasy.totp.verify({
       secret: user.mfaSecret,
@@ -162,14 +168,18 @@ const verifyMFA = async (req, res) => {
     });
 
     if (!verified) {
+      console.warn('Invalid MFA token provided for user:', user.email);
       return res.status(401).json({
         success: false,
         error: 'Invalid MFA code'
       });
     }
 
-    // Generate full auth token
-    const token = generateToken(user._id);
+    console.log('MFA Token verified successfully. Creating full session...');
+
+    // Generate full auth token and set cookie
+    const { token: sessionToken } = await createSession(res, user, req);
+    console.log('Session created successfully for user:', user.email);
 
     res.json({
       success: true,
@@ -179,9 +189,10 @@ const verifyMFA = async (req, res) => {
           _id: user._id,
           name: user.name,
           email: user.email,
-          role: user.role
+          role: user.role,
+          avatar: user.avatar
         },
-        token
+        token: sessionToken
       }
     });
   } catch (error) {
@@ -199,9 +210,11 @@ const verifyMFA = async (req, res) => {
  */
 const useBackupCode = async (req, res) => {
   try {
+    console.log('=== Backup Code Verification Started ===');
     const { tempToken, backupCode } = req.body;
 
     if (!tempToken || !backupCode) {
+      console.warn('Missing tempToken or backupCode');
       return res.status(400).json({
         success: false,
         error: 'Temporary token and backup code are required'
@@ -213,22 +226,26 @@ const useBackupCode = async (req, res) => {
     let decoded;
     try {
       decoded = jwt.verify(tempToken, process.env.JWT_SECRET);
+      console.log('Temp token verified for user ID:', decoded.id);
     } catch (err) {
+      console.error('Temp token verification failed:', err.message);
       return res.status(401).json({
         success: false,
         error: 'Invalid or expired temporary token'
       });
     }
 
-    const user = await User.findById(decoded.id).select('+mfaBackupCodes');
+    const user = await User.findById(decoded.id).select('+mfaBackupCodes.code');
 
     if (!user || !user.mfaEnabled) {
+      console.warn('User not found or MFA not enabled for user:', decoded.id);
       return res.status(400).json({
         success: false,
         error: 'MFA not enabled for this user'
       });
     }
 
+    console.log('Verifying backup code for user:', user.email);
     // Find and verify backup code
     let codeFound = false;
     for (let i = 0; i < user.mfaBackupCodes.length; i++) {
@@ -244,6 +261,7 @@ const useBackupCode = async (req, res) => {
     }
 
     if (!codeFound) {
+      console.warn('Invalid or used backup code provided for user:', user.email);
       return res.status(401).json({
         success: false,
         error: 'Invalid or already used backup code'
@@ -251,9 +269,11 @@ const useBackupCode = async (req, res) => {
     }
 
     await user.save();
+    console.log('Backup code verified. Creating full session...');
 
-    // Generate full auth token
-    const token = generateToken(user._id);
+    // Generate full auth token and set cookie
+    const { token: sessionToken } = await createSession(res, user, req);
+    console.log('Session created successfully (via backup code) for user:', user.email);
 
     // Count remaining codes
     const remainingCodes = user.mfaBackupCodes.filter(c => !c.used).length;
@@ -266,9 +286,10 @@ const useBackupCode = async (req, res) => {
           _id: user._id,
           name: user.name,
           email: user.email,
-          role: user.role
+          role: user.role,
+          avatar: user.avatar
         },
-        token,
+        token: sessionToken,
         remainingBackupCodes: remainingCodes,
         warning: remainingCodes < 3 ? 'You have few backup codes left. Consider generating new ones.' : null
       }
