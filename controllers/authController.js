@@ -117,11 +117,14 @@ const googleLogin = async (req, res) => {
  */
 const register = async (req, res) => {
   try {
+    console.log('=== User Registration Started ===');
     const { name, email, password, phone } = req.body;
+    console.log('Registration email:', email);
 
     // Check if user already exists
     const existingUser = await User.findOne({ email });
     if (existingUser) {
+      console.warn('Registration failed: User already exists with email:', email);
       return res.status(400).json({
         success: false,
         error: 'User with this email already exists'
@@ -131,6 +134,7 @@ const register = async (req, res) => {
     // Validate password complexity
     const passwordValidation = validatePasswordComplexity(password);
     if (!passwordValidation.isValid) {
+      console.warn('Registration failed: Password complexity not met for user:', email);
       return res.status(400).json({
         success: false,
         error: 'Password does not meet security requirements',
@@ -147,6 +151,7 @@ const register = async (req, res) => {
     // Calculate password expiry date
     const passwordExpiresAt = calculatePasswordExpiry();
 
+    console.log('Creating user document in database...');
     // Create new user with security fields
     const user = await User.create({
       name,
@@ -156,6 +161,8 @@ const register = async (req, res) => {
       passwordChangedAt: new Date(),
       passwordExpiresAt,
     });
+
+    console.log('User registered successfully:', email);
 
     // Remove password from response
     const userResponse = {
@@ -173,7 +180,7 @@ const register = async (req, res) => {
       data: userResponse
     });
   } catch (error) {
-    console.error('Registration error:', error);
+    console.error('Registration error detail:', error);
     res.status(500).json({
       success: false,
       error: 'Registration failed'
@@ -426,10 +433,13 @@ const resetPassword = async (req, res) => {
  */
 const login = async (req, res) => {
   try {
+    console.log('=== Login Attempt Started ===');
     const { email, password } = req.body;
+    console.log('Login email:', email);
 
     // Validate input
     if (!email || !password) {
+      console.warn('Login failed: Missing email or password');
       return res.status(400).json({
         success: false,
         error: 'Please provide email and password'
@@ -439,6 +449,7 @@ const login = async (req, res) => {
     // Find user by email
     const user = await User.findOne({ email });
     if (!user) {
+      console.warn('Login failed: User not found for email:', email);
       return res.status(401).json({
         success: false,
         error: 'Invalid credentials'
@@ -448,6 +459,7 @@ const login = async (req, res) => {
     // Check if account is locked
     if (user.loginAttempts.lockedUntil && user.loginAttempts.lockedUntil > new Date()) {
       const remainingTime = Math.ceil((user.loginAttempts.lockedUntil - new Date()) / 60000);
+      console.warn('Login failed: Account locked for user:', email);
       return res.status(423).json({
         success: false,
         error: `Account is locked. Try again in ${remainingTime} minutes`,
@@ -457,6 +469,7 @@ const login = async (req, res) => {
 
     // Check if user is active
     if (!user.isActive) {
+      console.warn('Login failed: Account deactivated for user:', email);
       return res.status(401).json({
         success: false,
         error: 'Account is deactivated. Please contact support.'
@@ -466,6 +479,7 @@ const login = async (req, res) => {
     // Verify password
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
+      console.warn('Login failed: Invalid password for user:', email);
       // Increment failed login attempts
       await user.incrementLoginAttempts();
       
@@ -482,9 +496,11 @@ const login = async (req, res) => {
 
     // Reset login attempts on successful password verification
     await user.resetLoginAttempts();
+    console.log('Password verified successfully for user:', email);
 
     // Check if MFA is enabled
     if (user.mfaEnabled) {
+      console.log('MFA is enabled for user:', email, '. Generating temporary token.');
       const jwt = require('jsonwebtoken');
       const tempToken = jwt.sign(
         { id: user._id, type: 'mfa_pending' },
@@ -503,6 +519,8 @@ const login = async (req, res) => {
       });
     }
 
+    console.log('MFA not enabled. Proceeding with session creation.');
+
     // Update last login info
     await User.findByIdAndUpdate(user._id, {
       lastLogin: new Date(),
@@ -513,8 +531,9 @@ const login = async (req, res) => {
     // Check password expiry
     const expiryStatus = isPasswordExpired(user.passwordExpiresAt);
 
-    // Create session and set HTTP-only cookie (handles concurrent limit)
+    // Create session and set HTTP-only cookie
     const { token } = await createSession(res, user, req);
+    console.log('Session created successfully (normal login) for user:', email);
 
     // Prepare response
     const userResponse = {
@@ -523,7 +542,8 @@ const login = async (req, res) => {
       email: user.email,
       role: user.role,
       phone: user.phone,
-      mfaEnabled: user.mfaEnabled
+      mfaEnabled: user.mfaEnabled,
+      avatar: user.avatar
     };
 
     const response = {
@@ -531,7 +551,7 @@ const login = async (req, res) => {
       message: 'Login successful',
       data: {
         user: userResponse,
-        token // Still included for API clients that need it
+        token
       }
     };
 
@@ -939,15 +959,14 @@ const revokeAllSessions = async (req, res) => {
 
     const Session = require('../models/Session');
     
-    // Delete all sessions for user EXCEPT current one
+    // Delete all sessions for user
     const result = await Session.deleteMany({ 
-      userId,
-      token: { $ne: currentToken }
+      userId
     });
 
     res.json({
       success: true,
-      message: 'All other sessions revoked successfully',
+      message: 'All sessions revoked successfully',
       revokedCount: result.deletedCount
     });
   } catch (error) {
