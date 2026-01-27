@@ -20,6 +20,10 @@ const {
   deleteAccount
 } = require('../controllers/authController');
 const {
+  getGoogleAuthUrl,
+  googleCallback
+} = require('../controllers/oauthController');
+const {
   registerValidation,
   loginValidation,
   changePasswordValidation,
@@ -28,16 +32,24 @@ const {
 const { protect } = require('../middleware/authMiddleware');
 const { passwordResetLimiter } = require('../middleware/rateLimiter');
 const { uploadAvatar } = require('../middleware/uploadMiddleware');
+const { recaptchaMiddleware } = require('../middleware/recaptchaMiddleware');
 
 // Public routes
 // POST /api/auth/register - Register new user
-router.post('/register', registerValidation, register);
+router.post('/register', recaptchaMiddleware.register, registerValidation, register);
 
 // POST /api/auth/login - Login user
-router.post('/login', loginValidation, login);
+router.post('/login', recaptchaMiddleware.login, loginValidation, login);
 
-// POST /api/auth/google - Google Login
+// POST /api/auth/google - Google Login (legacy ID token method)
 router.post('/google', googleLogin);
+
+// Google OAuth 2.0 with PKCE routes
+// GET /api/auth/google/url - Get Google OAuth URL
+router.get('/google/url', getGoogleAuthUrl);
+
+// POST /api/auth/google/callback - Handle OAuth callback
+router.post('/google/callback', googleCallback);
 
 // POST /api/auth/validate-password - Validate password strength (for real-time feedback)
 router.post('/validate-password', validatePassword);
@@ -47,7 +59,7 @@ router.get('/password-requirements', getPasswordRequirementsInfo);
 
 // Password Reset routes (rate limited)
 // POST /api/auth/forgot-password - Request password reset code
-router.post('/forgot-password', passwordResetLimiter, forgotPassword);
+router.post('/forgot-password', recaptchaMiddleware.forgotPassword, passwordResetLimiter, forgotPassword);
 
 // POST /api/auth/verify-reset-code - Verify the reset code
 router.post('/verify-reset-code', verifyResetCode);
