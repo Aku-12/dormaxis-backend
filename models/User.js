@@ -199,8 +199,9 @@ userSchema.methods.isPasswordExpired = function() {
 
 // Method to increment login attempts
 userSchema.methods.incrementLoginAttempts = async function() {
-  const LOCK_TIME = 30 * 60 * 1000; // 30 minutes
-  const MAX_ATTEMPTS = 5;
+  const securityConfig = require('../config/security.config');
+  const LOCK_TIME = securityConfig.rateLimit.lockoutDuration;
+  const MAX_ATTEMPTS = securityConfig.rateLimit.loginMaxAttempts;
 
   // Reset if lock has expired
   if (this.loginAttempts.lockedUntil && this.loginAttempts.lockedUntil < new Date()) {
