@@ -46,6 +46,9 @@ const createStripeCheckoutSession = async (req, res) => {
     console.log('[Stripe Initiate] Booking Created:', booking._id);
 
     // Create Stripe Session
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    console.log('[Stripe Initiate] Using FRONTEND_URL:', frontendUrl);
+
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
       line_items: [
@@ -63,8 +66,8 @@ const createStripeCheckoutSession = async (req, res) => {
         },
       ],
       mode: 'payment',
-      success_url: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/booking/success/${booking._id}?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/booking/${dormId}`,
+      success_url: `${frontendUrl}/booking/success/${booking._id}?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${frontendUrl}/booking/${dormId}`,
       metadata: {
         bookingId: booking._id.toString(),
         userId: userId.toString(),
