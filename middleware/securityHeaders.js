@@ -19,7 +19,7 @@ const helmetConfig = helmet({
       styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
       fontSrc: ["'self'", "https://fonts.gstatic.com"],
       imgSrc: ["'self'", "data:", "https:", "blob:"],
-      connectSrc: ["'self'", "https://rc.esewa.com.np", "https://esewa.com.np", "http://localhost:*"],
+      connectSrc: ["'self'", "https://rc.esewa.com.np", "https://esewa.com.np", "http://localhost:*", "http://127.0.0.1:*", "http://192.168.1.72:*"],
       frameSrc: ["'self'", "https://www.google.com", "https://rc.esewa.com.np"],
       objectSrc: ["'none'"],
       upgradeInsecureRequests: process.env.NODE_ENV === 'production' ? [] : null,
@@ -111,11 +111,16 @@ const corsConfig = {
       return callback(null, true);
     }
 
+    // DEBUG: Log origin for troubleshooting
+    console.log(`[CORS Check] Origin: "${origin}"`);
+    console.log(`[CORS Check] Allowed:`, securityConfig.cors.allowedOrigins);
+
     if (securityConfig.cors.allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
-      console.warn(`CORS blocked origin: ${origin}`);
-      callback(new Error('Not allowed by CORS'));
+      console.warn(`[CORS Blocked] Origin: "${origin}" is not in whitelist`);
+      // Use null, false to allow request but without CORS headers (standard behavior)
+      callback(null, false);
     }
   },
   methods: securityConfig.cors.methods,
