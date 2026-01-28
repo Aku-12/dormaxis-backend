@@ -53,11 +53,16 @@ app.use(xssProtection);
 // DATABASE CONNECTION
 // ============================================
 
-const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/dormaxis';
+const MONGO_URI = process.env.MONGODB_URI || process.env.MONGO_URI || 'mongodb://localhost:27017/dormaxis';
 
 mongoose.connect(MONGO_URI)
   .then(() => console.log('✅ Connected to MongoDB'))
-  .catch((err) => console.error('❌ MongoDB connection error:', err));
+  .catch((err) => {
+    console.error('❌ MongoDB connection error:', err.message);
+    if (err.name === 'MongooseServerSelectionError') {
+      console.error('TIP: Check if your MongoDB service is running and accessible on 127.0.0.1:27017');
+    }
+  });
 
 // ============================================
 // ROUTES
